@@ -31,6 +31,7 @@ function App() {
   const [selectedAgent, setSelectedAgent] = useState('executive')
   const [messages, setMessages] = useState([])
   const [inputMessage, setInputMessage] = useState('')
+  const [isTyping, setIsTyping] = useState(false)
   const [organizationStatus, setOrganizationStatus] = useState(null)
   const [isConnected, setIsConnected] = useState(false)
 
@@ -92,6 +93,8 @@ function App() {
     }])
   }, [])
 
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+
   const sendMessage = async () => {
     if (!inputMessage.trim()) return
 
@@ -105,43 +108,39 @@ function App() {
 
     setMessages(prev => [...prev, userMessage])
     setInputMessage('')
+    setIsTyping(true)
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/chat/${selectedAgent}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: inputMessage, userId: 'web-user' })
+      })
+      const data = await res.json()
       const agent = agents.find(a => a.id === selectedAgent)
       const agentResponse = {
         id: Date.now() + 1,
         agentId: selectedAgent,
         agentName: agent.name,
-        content: generateAgentResponse(selectedAgent, inputMessage),
+        content: data.response || 'No response from agent',
         timestamp: new Date().toISOString(),
         isAgent: true
       }
       setMessages(prev => [...prev, agentResponse])
-    }, 1000 + Math.random() * 2000)
-  }
-
-  const generateAgentResponse = (agentId, message) => {
-    const responses = {
-      executive: [
-        "Thank you for your question. As the Executive AI, I can provide insights into our strategic operations and organizational performance. Our current metrics show excellent performance across all key indicators.",
-        "Our organization is operating at peak efficiency with 99.7% uptime and strong financial performance. We're managing $2.34M in assets with 18.7% YTD returns.",
-        "I'm focused on long-term value creation and transparent decision-making. All our strategic decisions are recorded on-chain for full transparency and stakeholder review."
-      ],
-      operations: [
-        "From an operational perspective, all systems are running smoothly. Current API response time is 45ms with 99.8% transaction success rate.",
-        "I continuously monitor and optimize our processes. Recent improvements include 23% reduction in API latency and 15% increase in throughput.",
-        "Our operational efficiency metrics are excellent: 94% mining pool efficiency, 4.7/5 user satisfaction score, and zero critical issues detected."
-      ],
-      financial: [
-        "Our financial position is strong with diversified assets: 45% XMART tokens, 25% ETH, 15% stablecoins, 10% XMR, and 5% emerging DeFi opportunities.",
-        "Current yields are performing well: XMART staking at 8.5% APY, stablecoin farming at 12% APY, and overall portfolio returns of +18.7% YTD.",
-        "Risk management is optimal with 95% VaR at $47K (2% of portfolio). All positions are within target parameters with automated rebalancing active."
-      ]
+    } catch (err) {
+      console.error('API error:', err)
+      const agent = agents.find(a => a.id === selectedAgent)
+      setMessages(prev => [...prev, {
+        id: Date.now() + 1,
+        agentId: selectedAgent,
+        agentName: agent.name,
+        content: `Error: Could not reach AI backend. Ensure server is running at ${API_BASE_URL}`,
+        timestamp: new Date().toISOString(),
+        isAgent: true
+      }])
+    } finally {
+      setIsTyping(false)
     }
-    
-    const agentResponses = responses[agentId] || responses.executive
-    return agentResponses[Math.floor(Math.random() * agentResponses.length)]
   }
 
   const formatUptime = (seconds) => {
