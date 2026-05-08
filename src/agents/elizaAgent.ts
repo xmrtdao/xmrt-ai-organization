@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '../config';
 
 export interface XMRTElizaAgent {
@@ -10,14 +9,27 @@ export interface XMRTElizaAgent {
   status: 'active' | 'inactive' | 'maintenance';
 }
 
-const genAI = new GoogleGenerativeAI(config.ai.googleApiKey);
+const DEEPSEEK_ENDPOINT = 'https://vawouugtzwmejxqkeqqj.supabase.co/functions/v1/deepseek-chat';
 
 const getAIResponse = async (prompt: string, agentRole: string) => {
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-    const result = await model.generateContent(`As the ${agentRole} for the XMRT Fully Automated AI Organization, respond to the following: ${prompt}`);
-    const response = await result.response;
-    return response.text();
+    const response = await fetch(DEEPSEEK_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: `You are the ${agentRole} for the XMRT Fully Automated AI Organization. ${prompt}`,
+        session_id: undefined
+      })
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error(`DeepSeek error (${response.status}):`, text);
+      return `System offline. Status: ${response.status}`;
+    }
+
+    const data = await response.json();
+    return data.response || data.message || JSON.stringify(data);
   } catch (error) {
     console.error(`Error getting AI response for ${agentRole}:`, error);
     return `I am currently experiencing technical difficulties. Please try again later.`;
@@ -168,5 +180,3 @@ export const xmrtAgents: XMRTElizaAgent[] = [
 ];
 
 export default xmrtAgents;
-
-
