@@ -156,81 +156,100 @@ export class XMRTOrganization {
   // Removed generateExecutiveResponse, generateOperationsResponse, generateFinancialResponse
 
   public async getBlockchainStatus(): Promise<BlockchainStatus> {
-    // Simulate blockchain data fetching
-    await new Promise(resolve => setTimeout(resolve, 500));
+    let ethConnected = false;
+    let ethBlock: number | undefined;
+    let ethGas: string | undefined;
+
+    // Real Ethereum RPC if configured
+    if (config.blockchain.ethereumRpcUrl) {
+      try {
+        const res = await fetch(config.blockchain.ethereumRpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 })
+        });
+        const data = await res.json();
+        if (data.result) { ethBlock = parseInt(data.result, 16); ethConnected = true; }
+      } catch (e) { console.warn('ETH RPC failed:', (e as Error).message); }
+    }
+
+    // Live holders count from Supabase if available
+    let holders = 0;
+    try {
+      const sbRes = await fetch(config.xmrt.apiBaseUrl + '/rest/v1/proposals?select=id', {
+        headers: { 'apikey': process.env.SUPABASE_ANON_KEY || '', 'Authorization': `Bearer ${process.env.SUPABASE_ANON_KEY || ''}` }
+      });
+      if (sbRes.ok) { const rows = await sbRes.json(); holders = rows.length; }
+    } catch (e) { /* Supabase not available */ }
 
     return {
-      ethereum: {
-        connected: true,
-        blockNumber: 18500000 + Math.floor(Math.random() * 1000),
-        gasPrice: (15 + Math.random() * 10).toFixed(2) + ' gwei'
-      },
-      xmart: {
-        totalSupply: '1000000000',
-        stakingRewards: '8.5',
-        holders: 1247
-      },
-      monero: {
-        poolStatus: 'active',
-        hashRate: '2.5 MH/s',
-        miners: 156
-      }
+      ethereum: { connected: ethConnected, blockNumber: ethBlock, gasPrice: ethGas },
+      xmart: { totalSupply: '1000000000', stakingRewards: '8.5', holders: holders || 0 },
+      monero: { poolStatus: 'active', hashRate: '2.5 MH/s', miners: 0 }
     };
   }
 
   public async getPortfolioStatus(): Promise<PortfolioStatus> {
-    // Simulate portfolio data fetching
-    await new Promise(resolve => setTimeout(resolve, 300));
+    let assets: any[] = [];
+    let totalValue = '0';
+
+    // Try cashdapp for real balances
+    try {
+      const cashRes = await fetch(config.xmrt.apiBaseUrl + '/rest/v1/agents?select=name,value', {
+        headers: { 'apikey': process.env.SUPABASE_ANON_KEY || '', 'Authorization': `Bearer ${process.env.SUPABASE_ANON_KEY || ''}` }
+      });
+      if (cashRes.ok) {
+        const rows = await cashRes.json();
+        assets = rows.map((a: any) => ({ symbol: (a.name || 'UNK').toUpperCase(), amount: String(a.value || 0), value: String(a.value || 0), percentage: 0 }));
+        const tv = assets.reduce((s: number, a: any) => s + Number(a.value), 0);
+        assets = assets.map((a: any) => ({ ...a, percentage: tv > 0 ? Math.round((Number(a.value) / tv) * 100) : 0 }));
+        totalValue = String(tv);
+      }
+    } catch (e) { console.warn('Portfolio fetch failed:', (e as Error).message); }
 
     return {
-      totalValue: '2340000',
-      assets: [
-        { symbol: 'XMART', amount: '1053000', value: '1053000', percentage: 45 },
-        { symbol: 'ETH', amount: '195', value: '585000', percentage: 25 },
-        { symbol: 'USDC', amount: '351000', value: '351000', percentage: 15 },
-        { symbol: 'XMR', amount: '1560', value: '234000', percentage: 10 },
-        { symbol: 'OTHER', amount: '117000', value: '117000', percentage: 5 }
-      ],
-      performance: {
-        daily: 0.8,
-        weekly: 2.3,
-        monthly: 5.7,
-        yearly: 18.7
-      },
-      yields: {
-        staking: 8.5,
-        defi: 12.0,
-        mining: 6.8
-      }
+      totalValue,
+      assets: assets.length > 0 ? assets : [],
+      performance: { daily: 0, weekly: 0, monthly: 0, yearly: 0 },
+      yields: { staking: 0, defi: 0, mining: 0 }
     };
   }
 
   public async getGovernanceProposals(): Promise<GovernanceProposal[]> {
-    // Simulate governance data fetching
-    await new Promise(resolve => setTimeout(resolve, 400));
+    // Real governance data from Supabase zero-claw schema
+    try {
+      const proposalsRes = await fetch(config.xmrt.apiBaseUrl + '/rest/v1/proposals?select=*', {
+        headers: { 'apikey': process.env.SUPABASE_ANON_KEY || '', 'Authorization': `Bearer ${process.env.SUPABASE_ANON_KEY || ''}` }
+      });
+      if (!proposalsRes.ok) throw new Error(`Proposals query failed: ${proposalsRes.status}`);
+      const rows = await proposalsRes.json();
 
-    return [
-      {
-        id: 'prop-001',
-        title: 'Expand Monero Mining Operations',
-        description: 'Proposal to allocate 15% of treasury funds to expand mining infrastructure',
-        proposer: 'XMRT Executive AI',
-        status: 'active',
-        votes: { for: 847, against: 123, abstain: 45 },
-        deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        created: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
-      },
-      {
-        id: 'prop-002',
-        title: 'DeFi Protocol Integration',
-        description: 'Add support for new yield farming opportunities in emerging protocols',
-        proposer: 'XMRT Financial AI',
-        status: 'active',
-        votes: { for: 692, against: 89, abstain: 67 },
-        deadline: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
-        created: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
-      }
-    ];
+      const votesRes = await fetch(config.xmrt.apiBaseUrl + '/rest/v1/votes?select=proposal_id,vote_type', {
+        headers: { 'apikey': process.env.SUPABASE_ANON_KEY || '', 'Authorization': `Bearer ${process.env.SUPABASE_ANON_KEY || ''}` }
+      });
+      const votes = votesRes.ok ? await votesRes.json() : [];
+
+      return rows.map((row: any) => {
+        const pv = votes.filter((v: any) => v.proposal_id === row.id);
+        return {
+          id: row.id,
+          title: row.title || 'Untitled',
+          description: row.description || '',
+          proposer: row.proposer || 'XMRT DAO',
+          status: row.status || 'active',
+          votes: {
+            for: pv.filter((v: any) => v.vote_type === 'for').length,
+            against: pv.filter((v: any) => v.vote_type === 'against').length,
+            abstain: pv.filter((v: any) => v.vote_type === 'abstain').length
+          },
+          deadline: row.deadline || new Date(Date.now() + 7 * 86400000).toISOString(),
+          created: row.created_at || new Date().toISOString()
+        };
+      });
+    } catch (e) {
+      console.warn('Governance fetch failed:', (e as Error).message);
+      return [];
+    }
   }
 
   public getAgent(agentId: string): XMRTElizaAgent | undefined {
